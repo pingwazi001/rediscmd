@@ -24,7 +24,10 @@
 3、你要熟悉go程序的打包方式  
 
 ## windows可执行程序
-[windows可执行程序](https://raw.githubusercontent.com/pwzos/rediscmd/main/target/rediscmd.exe)
+[点击下载](https://raw.githubusercontent.com/pwzos/rediscmd/main/target/rediscmd.exe)
 
 ## macos/linux可执行程序
-[linux系统下的可执行程序]()
+[点击下载](https://github.com/pwzos/rediscmd/raw/main/target/rediscmd)
+
+## 配置环境变量
+对应系统配置好环境变量，可以直接在命令行中输入rediscmd即可唤醒此工具

@@ -71,6 +71,7 @@ func FuncOptionMsg() {
 }
 
 func FuncOption() {
+	fmt.Println("https://github.com/pwzos/rediscmd")
 	CheckConf() //检查配置文件，如果配置文件不存在就需要初始化
 	for {
 		FuncOptionMsg()

@@ -3,10 +3,10 @@
 ![image](https://user-images.githubusercontent.com/47658310/125740708-7c6df5a5-4b16-43ca-955c-f333cd0f17e2.png)
 
 # 为什么要写这个工具
-1、受不了RedisDesktopManager加载数据库列表慢  
-2、受不了RedisDesktopManager大数量量情况下查询key值慢  
-3、受不了RedisDesktopManager不支持忽略key的大小写查询  
-4、更受不了RedisDesktopManager操作中程序崩溃退出  
+1、受不了某某Manager加载数据库列表慢  
+2、受不了某某Manager大数量量情况下查询key值慢  
+3、受不了某某Manager不支持忽略key的大小写查询  
+4、更受不了某某Manager操作中程序崩溃退出  
 9、不要脸的还收费  
 
 # 优势
@@ -24,7 +24,7 @@
 3、你要熟悉go程序的打包方式  
 
 ## windows可执行程序
-
+[windows可执行程序](https://raw.githubusercontent.com/pwzos/rediscmd/main/target/rediscmd.exe)
 
 ## macos/linux可执行程序
-
+[linux系统下的可执行程序]()

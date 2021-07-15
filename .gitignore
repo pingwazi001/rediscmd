@@ -15,3 +15,4 @@
 # vendor/
 *.ini
 __debug_bin
+rediscmd

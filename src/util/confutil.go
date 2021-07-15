@@ -33,7 +33,7 @@ func removeSpecialChar(str string) string {
 //初始化配置
 func InitConf() error {
 	os.Remove(confPath) //删除配置文件
-	fileObj, err := os.OpenFile(confPath, os.O_CREATE|os.O_WRONLY, os.ModeAppend)
+	fileObj, err := os.OpenFile(confPath, os.O_CREATE|os.O_WRONLY, os.ModeAppend|os.ModePerm)
 	if err != nil {
 		os.Remove(confPath) //文件打开失败，删除配置文件
 		return errors.New("初始化配置文件失败，请确保工具所在目录中不存在conf.ini文件，并且此文件未打开")

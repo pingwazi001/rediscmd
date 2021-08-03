@@ -1,6 +1,8 @@
 # 简介
 一个通过命令行操作redis服务器的cmd工具  
-![image](https://user-images.githubusercontent.com/47658310/125740708-7c6df5a5-4b16-43ca-955c-f333cd0f17e2.png)
+![image](https://user-images.githubusercontent.com/47658310/128036299-5f08252e-ec71-4bd5-8a89-811ab02acd49.png)
+
+
 
 # 为什么要写这个工具
 1、受不了某某Manager加载数据库列表慢  

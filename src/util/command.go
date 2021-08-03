@@ -34,6 +34,11 @@ func init() {
 		cmd.Stdout = os.Stdout
 		cmd.Run()
 	}
+	clear["darwin"] = func() {
+		cmd := exec.Command("clear") //macos
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	}
 	clear["windows"] = func() {
 		cmd := exec.Command("cmd", "/c", "cls") //Windows example, its tested
 		cmd.Stdout = os.Stdout
@@ -72,7 +77,7 @@ func FuncOptionMsg() {
 		{"10", "退出程序"},
 	}
 	t := table.AsciiTable(msg)
-	log.Println(t)
+	fmt.Println(t)
 }
 
 func FuncOption() {
@@ -80,7 +85,7 @@ func FuncOption() {
 		if err := recover(); err != nil {
 			log.Println("工具发生致命错误！请通过https://github.com/pwzos/rediscmd向工具作者进行反馈")
 			log.Println(err)
-			log.Println("按任意键退出程序...")
+			log.Println("按回车退出程序...")
 			InputReader.ReadString('\n')
 			os.Exit(1)
 		}
@@ -112,7 +117,7 @@ func FuncOption() {
 		case "10":
 			os.Exit(1)
 		}
-		log.Println("按任意键开始下一轮操作...")
+		log.Println("按回车开始下一轮操作...")
 		InputReader.ReadString('\n')
 		CallClear()
 	}
@@ -249,7 +254,7 @@ func DeleteKey_4() {
 		return
 	}
 	allKeysCount := len(keys)
-	log.Printf("根据您输入的模糊Key=%s此次将批量删除%d条缓存数据，按任意键开始操作", pattern, allKeysCount)
+	log.Printf("根据您输入的模糊Key=%s此次将批量删除%d条缓存数据，按回车开始操作", pattern, allKeysCount)
 	InputReader.ReadString('\n')
 	deleteMsgChan := make(chan string, allKeysCount)
 	delCount := 1000

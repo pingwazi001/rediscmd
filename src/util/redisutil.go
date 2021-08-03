@@ -50,9 +50,14 @@ func initRedisConnectInfo() error {
 	}
 	redisPool = &redis.Pool{
 		Dial: func() (conn redis.Conn, e error) {
-			c, err := redis.Dial("tcp", fmt.Sprintf("%s:%d", conf.Redis.AddRess, conf.Redis.Port))
-			c.Do("AUTH", conf.Redis.Password) //认证
-			return c, err
+			c, err := redis.Dial("tcp", fmt.Sprintf("%s:%d", conf.Redis.AddRess, conf.Redis.Port), redis.DialConnectTimeout(1*time.Second))
+			if err != nil {
+				return nil, err
+			}
+			if _, err := c.Do("AUTH", conf.Redis.Password); err != nil {
+				return nil, err
+			} //认证
+			return c, nil
 		},
 		MaxIdle:     1,                     //连接池中最小空闲连接数
 		MaxActive:   conf.Redis.MaxConnect, //线程此的最大连接数
@@ -72,6 +77,13 @@ func createConnection() redis.Conn {
 		time.Sleep(5 * time.Millisecond) //休眠一定时间，等待连接池空闲
 	}
 	conn := redisPool.Get()
+	if err := conn.Err(); err != nil {
+		CreateConnectLock.Unlock() //释放锁 因为后面又要开始新的一轮操作了
+		log.Println("redis连接信息无法初始化！请重新配置连接信息")
+		removeConfFile()
+		initRedisConnectInfo()
+		return createConnection() //尝试恢复
+	}
 	CreateConnectLock.Unlock()
 	return conn
 }
@@ -181,10 +193,10 @@ func SearchKeys(dbid int, pattern string) ([]string, error) {
 			break //缓存key已加载完成，可以继续后续操作
 		}
 		if !firstPrint {
-			log.Print(".")
+			fmt.Print(".")
 		} else {
 			firstPrint = false
-			log.Println("后台正在加载当前数据库中的缓存Key，请...")
+			fmt.Println("后台正在加载当前数据库中的缓存Key，请...")
 		}
 		time.Sleep(1 * time.Second) //休眠一秒
 	}

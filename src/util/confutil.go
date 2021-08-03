@@ -26,6 +26,11 @@ type Conf struct {
 	}
 }
 
+//删除错误的配置文件
+func removeConfFile() {
+	os.Remove(confName) //文件打开失败，删除配置文件
+}
+
 //移除特殊字符
 func removeSpecialChar(str string) string {
 	str = strings.ReplaceAll(str, "\n", "")
@@ -50,7 +55,7 @@ func InitConf() error {
 	address = removeSpecialChar(address)
 	if err != nil || address == "" {
 		os.Remove(confName) //地址读取失败，删除配置文件
-		return fmt.Errorf("redis地址读取失败，%s", err.Error())
+		return fmt.Errorf("redis地址读取失败")
 	}
 
 	log.Println("请输入redis连接端口:")
@@ -63,7 +68,7 @@ func InitConf() error {
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port == 0 {
 		os.Remove(confName) //端口解析失败，删除配置文件
-		return fmt.Errorf("redis端口解析失败，%s", err.Error())
+		return fmt.Errorf("redis端口解析失败")
 	}
 
 	log.Println("请输入redis访问密码:")
@@ -71,7 +76,7 @@ func InitConf() error {
 	password = removeSpecialChar(password)
 	if err != nil || password == "" {
 		os.Remove(confName) //密码读取失败，删除配置文件
-		return fmt.Errorf("redis密码读取失败，%s", err.Error())
+		return fmt.Errorf("redis密码读取失败")
 	}
 
 	log.Println("请输入redis连接池中允许的最大连接数（1~100）:")
@@ -84,7 +89,7 @@ func InitConf() error {
 	maxConnect, err := strconv.Atoi(maxConnectStr)
 	if err != nil || maxConnect < 1 || maxConnect > 100 {
 		os.Remove(confName) //端口解析失败，删除配置文件
-		return fmt.Errorf("redis连接池中允许的最大连接数解析失败，%s", err.Error())
+		return fmt.Errorf("redis连接池中允许的最大连接数解析失败")
 	}
 	writer.WriteString(fmt.Sprintf("AddRess=%s\n", address))
 	writer.WriteString(fmt.Sprintf("Port=%d\n", port))

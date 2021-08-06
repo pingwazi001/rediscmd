@@ -96,6 +96,12 @@ func createConnection() redis.Conn {
 
 //加载所有数据库的缓存key到本地
 func initLoadAllCacheKeys() {
+	//遍历删除已加载的缓存key
+	CacheKeysMap.Range(func(k, v interface{}) bool {
+		CacheKeysMap.Delete(k)
+		return true
+	})
+
 	for dbid := 0; dbid < DbCount; dbid++ {
 		go func(dbIdItem int) {
 			conn := createConnection()

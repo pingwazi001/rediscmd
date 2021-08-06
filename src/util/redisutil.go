@@ -23,6 +23,9 @@ var (
 	CacheKeysMap sync.Map
 )
 
+//操作的数据库id
+var OptDBId = 0
+
 //获取连接的锁对象
 var CreateConnectLock sync.Mutex
 
@@ -82,9 +85,12 @@ func createConnection() redis.Conn {
 		log.Println("redis连接信息无法初始化！请重新配置连接信息")
 		removeConfFile()
 		initRedisConnectInfo()
-		return createConnection() //尝试恢复
+		conn = createConnection()  //尝试恢复
+		conn.Do("select", OptDBId) //指定操作的数据库id
+		return conn
 	}
 	CreateConnectLock.Unlock()
+	conn.Do("select", OptDBId) //指定操作的数据库id
 	return conn
 }
 
@@ -137,18 +143,19 @@ func initDBCount() error {
 
 //获取指定数据库中的keys数量
 func loadDBKeysCount(dbInfoChan chan DBInfo, dbid int) {
-	c := createConnection()
-	if c == nil {
-		log.Println("获取连接失败")
+	isPrinted := false
+	for {
+		if ret, ok := CacheKeysMap.Load(dbid); ok {
+			keysMap := ret.(map[string][]string)
+			dbInfoChan <- DBInfo{dbid: dbid, dbKeys: len(keysMap)}
+			break
+		}
+		if !isPrinted {
+			fmt.Printf("后台正在加载数据库编号=%d中的所有缓存Key到本地，请稍后...\r\n", dbid)
+			isPrinted = true
+		}
+		time.Sleep(1 * time.Second) //休眠一秒
 	}
-	defer c.Close()                    //关闭连接
-	c.Do("select", strconv.Itoa(dbid)) //选择指定数据库
-	dbSize, err := c.Do("dbsize")      //获取尺寸
-	if err != nil {
-		dbInfoChan <- DBInfo{dbid: dbid, dbKeys: 0}
-		return
-	}
-	dbInfoChan <- DBInfo{dbid: dbid, dbKeys: int(dbSize.(int64))}
 }
 
 //加载数据库列表
@@ -181,14 +188,14 @@ func LoadAllDBs(isAll bool, count int) map[int]int {
 }
 
 //加载指定数据库的所有缓存key
-func SearchKeys(dbid int, pattern string) ([]string, error) {
+func SearchKeys(pattern string) ([]string, error) {
 	if pattern == "" {
 		pattern = "*"
 	}
 	var keysMap map[string][]string
 	firstPrint := true
 	for {
-		if ret, ok := CacheKeysMap.Load(dbid); ok {
+		if ret, ok := CacheKeysMap.Load(OptDBId); ok {
 			keysMap = ret.(map[string][]string)
 			break //缓存key已加载完成，可以继续后续操作
 		}
@@ -205,22 +212,29 @@ func SearchKeys(dbid int, pattern string) ([]string, error) {
 	pattern = strings.ReplaceAll(pattern, ".", "\\.")
 	pattern = strings.ReplaceAll(pattern, "*", ".*")
 	retKeys := make([]string, 0)
+	matchKeysChan := make(chan []string, len(keysMap))
 	for k := range keysMap {
-		if ok, _ := regexp.Match(pattern, []byte(k)); ok {
-			retKeys = append(retKeys, keysMap[k]...)
-		}
+		go func(itemKey string) {
+			if ok, _ := regexp.Match(pattern, []byte(itemKey)); ok {
+				matchKeysChan <- keysMap[itemKey]
+				return
+			}
+			matchKeysChan <- make([]string, 0)
+		}(k)
+	}
+	for i := 0; i < len(keysMap); i++ {
+		retKeys = append(retKeys, <-matchKeysChan...)
 	}
 	return retKeys, nil
 }
 
 //获取值
-func GetValue(key string, dbid int) (string, error) {
+func GetValue(key string) (string, error) {
 	if key == "" {
 		return "", errors.New("key不能为空")
 	}
 	conn := createConnection()
 	defer conn.Close()
-	conn.Do("select", dbid)
 	ret, err := conn.Do("get", key)
 	if err != nil {
 		return "", errors.New("获取值错误，")
@@ -235,30 +249,55 @@ func GetValue(key string, dbid int) (string, error) {
 }
 
 //设置值
-func SetValue(dbid int, key, value string) {
+func SetValue(key, value string) {
 	if key == "" {
 		return
 	}
 	conn := createConnection()
 	defer conn.Close()
-	conn.Do("select", dbid)
 	conn.Do("set", key, value)
 }
 
 //删除缓存key
-func DeleteKey(dbid int, key ...string) {
+func DeleteKey(key ...string) {
 	if len(key) == 0 {
 		return
 	}
 	conn := createConnection()
 	defer conn.Close()
-	conn.Do("select", dbid)
-	conn.Do("del", key)
+	keys := make([]interface{}, 0, len(key))
+	for _, item := range key {
+		keys = append(keys, item)
+	}
+	_, err := conn.Do("del", keys...)
+	if err != nil {
+		log.Println(err)
+	}
 }
 
-func FlushDB(dbid int) {
+//清空数据数据
+func FlushDB() {
 	conn := createConnection()
 	defer conn.Close()
-	conn.Do("select", dbid)
 	conn.Do("FLUSHDB")
+}
+
+//缓存操作的数据库id
+func ChangeDBId(dbid int) {
+	if dbid < 0 || dbid >= DbCount {
+		log.Printf("数据库切换失败，请输入[0~%d)的数据库编号！", DbCount)
+		return
+	}
+	if dbid == OptDBId {
+		return
+	}
+	//切换操作的数据库id
+	OptDBId = dbid
+	for {
+		if err := initRedisConnectInfo(); err != nil {
+			log.Println(err)
+			continue
+		}
+		break
+	}
 }

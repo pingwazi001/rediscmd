@@ -75,7 +75,10 @@ func InitRedisInfo(isSelectConfName bool) {
 		err := conf.CheckRedisConf() //检查配置文件内容
 		if err != nil {
 			log.Printf("配置文件检查报错%s，请重新填写此配置文件内容！", err.Error())
-			conf.InitRedisConf() //配置文件检查不通过就重新初始化此配置文件内容
+			initErr := conf.InitRedisConf() //配置文件检查不通过就重新初始化此配置文件内容
+			if initErr != nil {
+				log.Println(initErr)
+			}
 			continue
 		}
 		//初始化redis连接

@@ -2,7 +2,6 @@ package conf
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -51,10 +50,11 @@ func InitRedisConf() error {
 
 	//删除已经存在的配置文件
 	util.RemoveFile(RedisConfAbsPath()) //删除配置文件
+	fmt.Println(RedisConfAbsPath())
 	fileObj, err := os.Create(RedisConfAbsPath())
 	if err != nil {
 		util.RemoveFile(RedisConfAbsPath()) //文件创建失败
-		return errors.New("初始化配置文件失败，请确保工具所在目录中不存在conf.ini文件，并且此文件未打开")
+		return err
 	}
 	defer fileObj.Close()
 	writer := bufio.NewWriter(fileObj)

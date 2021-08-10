@@ -183,18 +183,20 @@ func keysCMD(cmdParams []string) {
 		log.Println("模糊查询缓存Key的列表需要两个参数，请重新输入")
 		return
 	}
-	keys, err := db.SearchRedisKeys(cmdParams[1])
+	keysChan, err := db.SearchRedisKeys(cmdParams[1])
 	if err != nil {
 		log.Println(err)
 		return
 	}
-
-	for _, item := range keys {
-		item = strings.ReplaceAll(item, " ", "")
-		if item == "" {
-			continue
+	for i := 0; i < len(keysChan); i++ {
+		keys := <-keysChan
+		for _, item := range keys {
+			item = strings.ReplaceAll(item, " ", "")
+			if item == "" {
+				continue
+			}
+			log.Println(item)
 		}
-		log.Println(item)
 	}
 }
 
@@ -204,32 +206,36 @@ func getCMD(cmdParams []string) {
 		log.Println("模糊查询缓存Key的值需要两个参数，请重新输入")
 		return
 	}
-	keys, err := db.SearchRedisKeys(cmdParams[1])
+	keysChan, err := db.SearchRedisKeys(cmdParams[1])
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	if len(keys) <= 0 {
-		log.Println("未查询找到任何缓存，您可以尝试刷新本地key缓存后再查询")
-		return
+	keysCount := 0
+	valueMsgChan := make(chan string, len(keysChan))
+	for i := 0; i < len(keysChan); i++ {
+		keys := <-keysChan
+		if len(keys) <= 0 {
+			continue
+		}
+		keysCount += len(keys)
+		for _, key := range keys {
+			go func(itemKey string) {
+				value, err := db.GetRedisValue(itemKey)
+				if err != nil {
+					valueMsgChan <- itemKey + "=" + err.Error()
+					return
+				}
+				valueMsgChan <- fmt.Sprintf("%s=%s", itemKey, value)
+			}(key)
+		}
 	}
-	valueMsgChan := make(chan string, len(keys))
-	for _, key := range keys {
-		go func(itemKey string) {
-			value, err := db.GetRedisValue(itemKey)
-			if err != nil {
-				valueMsgChan <- itemKey + "=" + err.Error()
-				return
-			}
-			valueMsgChan <- fmt.Sprintf("%s=%s", itemKey, value)
-		}(key)
-	}
-
 	//打印查询结果
-	for i := 0; i < len(keys); i++ {
+	for i := 0; i < keysCount; i++ {
 		log.Println(<-valueMsgChan)
 		log.Println()
 	}
+	close(valueMsgChan) //释放资源
 }
 
 //删除模糊key的值
@@ -247,36 +253,40 @@ func delCMD(cmdParams []string) {
 		}
 		return
 	}
-	keys, err := db.SearchRedisKeys(pattern)
+	keysChan, err := db.SearchRedisKeys(pattern)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	allKeysCount := len(keys)
-	log.Printf("根据您输入的模糊Key=%s此次将批量删除%d条缓存数据，按回车开始操作", pattern, allKeysCount)
-	InputReader.ReadString('\n')
-	deleteMsgChan := make(chan string, allKeysCount)
-	delCount := 1000
-	forCount := 0
-	for {
-		if delCount > len(keys) {
-			delCount = len(keys)
+
+	keysBuf := make([]string, 0, 2000)
+	keysCount := 0
+	delCount := 0
+	delKeysCount := 0
+	deleteMsgChan := make(chan string, len(keysChan))
+	for i := 0; i < len(keysChan); i++ {
+		keys := <-keysChan
+		if len(keys) <= 0 {
+			continue
 		}
-		delKeys := keys[0:delCount]
-		go func(itemKey []string) {
-			start := time.Now()
-			db.DeleteRedisKey(itemKey...) //一次性批量删除多个
-			deleteMsgChan <- fmt.Sprintf("%s 删除成功，耗时%d毫秒", itemKey, time.Since(start).Milliseconds())
-		}(delKeys)
-		forCount++
-		keys = keys[delCount:] //重新指定
-		if delCount >= len(keys) {
-			break
+		delKeysCount += len(keys)
+		keysCount += len(keys)
+		keysBuf = append(keysBuf, keys...)
+		if len(keysBuf) >= 1000 {
+			go func(itemKey []string) {
+				start := time.Now()
+				db.DeleteRedisKey(itemKey...) //一次性批量删除多个
+				deleteMsgChan <- fmt.Sprintf("%s 删除成功，耗时%d毫秒", itemKey, time.Since(start).Milliseconds())
+			}(keysBuf[0:keysCount])
+			keysBuf = keysBuf[0:0]
+			keysCount = 0
+			delCount++
 		}
 	}
-	for i := 0; i < forCount; i++ {
+	for i := 0; i < delCount; i++ {
 		log.Println(<-deleteMsgChan)
 	}
+	log.Printf("共删除%d个缓存", delKeysCount)
 }
 
 func setCMD(cmdParams []string) {

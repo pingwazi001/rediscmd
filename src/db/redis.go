@@ -162,7 +162,7 @@ func loadDBKeysCount(dbInfoChan chan model.RedisDBInfo, dbid int) {
 			break
 		}
 		if !isPrinted {
-			fmt.Printf("后台正在加载数据库编号=%d中的所有缓存Key到本地，请稍后...\r\n", dbid)
+			log.Printf("后台正在加载数据库编号=%d中的所有缓存Key到本地，请稍后...\r\n", dbid)
 			isPrinted = true
 		}
 		time.Sleep(1 * time.Second) //休眠一秒
@@ -183,7 +183,7 @@ func AllRedisDBInfo(isAll bool, count int) chan model.RedisDBInfo {
 }
 
 //模糊查询缓存key
-func SearchRedisKeys(pattern string) ([]string, error) {
+func SearchRedisKeys(pattern string) (chan []string, error) {
 	if pattern == "" {
 		pattern = "*"
 	}
@@ -206,7 +206,7 @@ func SearchRedisKeys(pattern string) ([]string, error) {
 	pattern = strings.ToLower(pattern)
 	pattern = strings.ReplaceAll(pattern, ".", "\\.")
 	pattern = strings.ReplaceAll(pattern, "*", ".*")
-	retKeys := make([]string, 0)
+	//retKeys := make([]string, 0)
 	matchKeysChan := make(chan []string, len(keysMap))
 	for k := range keysMap {
 		go func(itemKey string) {
@@ -217,10 +217,10 @@ func SearchRedisKeys(pattern string) ([]string, error) {
 			matchKeysChan <- make([]string, 0)
 		}(k)
 	}
-	for i := 0; i < len(keysMap); i++ {
-		retKeys = append(retKeys, <-matchKeysChan...)
-	}
-	return retKeys, nil
+	// for i := 0; i < len(keysMap); i++ {
+	// 	retKeys = append(retKeys, <-matchKeysChan...)
+	// }
+	return matchKeysChan, nil
 }
 
 //获取指定key的值

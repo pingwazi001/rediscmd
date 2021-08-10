@@ -1,10 +1,10 @@
 package main
 
 import (
-	"rediscmd/src/util"
+	"rediscmd/src/command"
 )
 
 //dlv debug --headless --listen=:2345 --log --api-version=2
 func main() {
-	util.AppStart()
+	command.RedisCMDStart()
 }

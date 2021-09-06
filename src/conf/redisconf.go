@@ -47,7 +47,7 @@ func InitRedisConf() error {
 	_, port := util.ReadValueFromConsole("请输入redis连接端口", true)
 	password, _ := util.ReadValueFromConsole("请输入redis访问密码", false)
 	_, maxConnect := util.ReadValueFromConsole("请输入redis连接池中允许的最大连接数（1~100）", true)
-
+	keyPrefix, _ := util.ReadValueFromConsole("请输入缓存key的首字符组成序列（多个字符以,分隔）", false)
 	//删除已经存在的配置文件
 	util.RemoveFile(RedisConfAbsPath()) //删除配置文件
 	fmt.Println(RedisConfAbsPath())
@@ -63,7 +63,8 @@ func InitRedisConf() error {
 	writer.WriteString(fmt.Sprintf("AddRess=%s\n", address))
 	writer.WriteString(fmt.Sprintf("Port=%d\n", port))
 	writer.WriteString(fmt.Sprintf("Password=%s\n", password))
-	writer.WriteString(fmt.Sprintf("MaxConnect=%d", maxConnect))
+	writer.WriteString(fmt.Sprintf("MaxConnect=%d\n", maxConnect))
+	writer.WriteString(fmt.Sprintf("KeyPrefix=%d", keyPrefix))
 	writer.Flush()
 	return nil
 }
@@ -80,7 +81,12 @@ func CheckRedisConf() error {
 	if err != nil {
 		return fmt.Errorf("%s配置文件读取失败，请初始化此配置信息", confFileAbsPath)
 	}
-	if config.Redis.AddRess == "" || config.Redis.Password == "" || config.Redis.Port == 0 || config.Redis.MaxConnect < 1 || config.Redis.MaxConnect > 100 {
+	if config.Redis.AddRess == "" ||
+		config.Redis.Password == "" ||
+		config.Redis.Port == 0 ||
+		config.Redis.MaxConnect < 1 ||
+		config.Redis.MaxConnect > 100 ||
+		config.Redis.KeyPrefix == "" {
 		return fmt.Errorf("%s配置内置内容不正确，请初始化此配置信息", confFileAbsPath)
 	}
 	return nil

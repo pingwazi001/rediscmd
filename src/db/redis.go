@@ -33,7 +33,7 @@ func initRedisPool() error {
 	}
 	redisPool = &redis.Pool{
 		Dial: func() (conn redis.Conn, e error) {
-			c, err := redis.Dial("tcp", fmt.Sprintf("%s:%d", conf.Redis.AddRess, conf.Redis.Port), redis.DialConnectTimeout(1*time.Second))
+			c, err := redis.Dial("tcp", fmt.Sprintf("%s:%d", conf.Redis.AddRess, conf.Redis.Port), redis.DialConnectTimeout(30*time.Second))
 			if err != nil {
 				return nil, err
 			}
@@ -183,6 +183,40 @@ func AllRedisDBInfo(isAll bool, count int) chan model.RedisDBInfo {
 		go loadDBKeysCount(dbInfoChan, i)
 	}
 	return dbInfoChan
+}
+
+func LoadRedisKeys() {
+	conf, err := conf.GetRedisConf()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	keyPrefixs := strings.Split(conf.Redis.KeyPrefix, ",")
+	var wg sync.WaitGroup
+	wg.Add(len(keyPrefixs))
+	for _, prefixItem := range keyPrefixs {
+		go func(waitG *sync.WaitGroup) {
+			defer waitG.Done()
+			conn, err := createRedisConnection()
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			defer conn.Close()
+			keysRet, err := conn.Do("keys", fmt.Sprintf("%s*", prefixItem))
+			if err != nil {
+				log.Println(err)
+			}
+			if keysRet == nil { //当前数据库没有缓存key
+				return
+			}
+			for _, itemKey := range keysRet.([]interface{}) {
+				key := string(itemKey.([]uint8))
+				fmt.Println(key)
+			}
+		}(&wg)
+	}
+	wg.Wait()
 }
 
 //模糊查询缓存key

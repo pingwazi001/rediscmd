@@ -6,6 +6,7 @@ type RedisConf struct {
 		AddRess    string
 		Port       int
 		Password   string
-		MaxConnect int //连接池中允许最大的连接数
+		MaxConnect int    //连接池中允许最大的连接数
+		KeyPrefix  string //缓存key的前缀字符
 	}
 }

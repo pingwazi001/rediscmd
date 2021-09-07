@@ -8,6 +8,8 @@ import (
 //dlv debug --headless --listen=:2345 --log --api-version=2  //控制台调试
 //go tool pprof -http=:8081  http://localhost:8080/debug/pprof/profile?seconds=3 //cpu分析
 //go tool pprof -http=:8081  http://localhost:8080/debug/pprof/heap?seconds=3    //内存分析
+//go build -ldflags "-s -w" -o ..\target\rediscmd.exe  windows打包
+//go build -ldflags "-s -w" -o ..\target\rediscmd  mac打包
 func main() {
 	// go func() {
 	// 	http.ListenAndServe("0.0.0.0:8080", nil)

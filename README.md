@@ -1,6 +1,6 @@
 # 简介
 一个通过命令行操作redis服务器的cmd工具  
-![image](https://user-images.githubusercontent.com/47658310/128879867-e96a8bce-05fa-4f27-8055-ef72710070b3.png)
+![image](https://user-images.githubusercontent.com/47658310/132305237-b2bccc4e-b63b-4a19-ab2e-424073b344e5.png)
 
 
 

@@ -300,7 +300,7 @@ func getIgnoreCaseCMD(cmdParams []string) {
 
 //区分大小写的方式模糊删除key的值
 func delCMD(cmdParams []string) {
-	if !checkCMDParamsCount(cmdParams, 2) || !checkCMDParamsCount(cmdParams, 3) {
+	if !checkCMDParamsCount(cmdParams, 2) {
 		log.Println("模糊批量删除缓存需要2个参数，请重新输入")
 		return
 	}

@@ -20,7 +20,6 @@ import (
 var (
 	redisPool              *redis.Pool //redis连接池
 	redisDBCount           int         //数据库数量
-	redisCacheKeysMap      sync.Map    //redis缓存key信息
 	redisOptionDBId        = 0         //操作的redis数据库id
 	createRedisConnectLock sync.Mutex  //获取redis连接的锁对象
 )
@@ -90,48 +89,7 @@ func InitRedisInfo(isSelectConfName bool) {
 			log.Printf("初始化获取redis的数据库数量报错%s，重新初始化！", err.Error())
 			continue
 		} //初始化数据库数量
-		TriggerLoadAllCacheKeysToLocal() //触发加载所有数据库中的缓存key信息
 		break
-	}
-}
-
-//触发加载所有缓存key到本地
-func TriggerLoadAllCacheKeysToLocal() {
-	//遍历删除已加载的缓存key
-	redisCacheKeysMap.Range(func(k, v interface{}) bool {
-		redisCacheKeysMap.Delete(k)
-		return true
-	})
-
-	for dbid := 0; dbid < redisDBCount; dbid++ {
-		go func(dbIdItem int) {
-			conn, err := createRedisConnection()
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			defer conn.Close()
-			conn.Do("select", dbIdItem)
-			keysRet, err := conn.Do("keys", "*")
-			if err != nil {
-				log.Println(err)
-			}
-			keysMap := make(map[string][]string)
-			if keysRet == nil { //当前数据库没有缓存key
-				redisCacheKeysMap.Store(dbIdItem, keysMap)
-				return
-			}
-
-			for _, item := range keysRet.([]interface{}) {
-				key := string(item.([]uint8))
-				if _, ok := keysMap[key]; !ok {
-					keysMap[strings.ToLower(key)] = []string{key}
-				} else {
-					keysMap[strings.ToLower(key)] = append(keysMap[strings.ToLower(key)], key)
-				}
-			}
-			redisCacheKeysMap.Store(dbIdItem, keysMap)
-		}(dbid)
 	}
 }
 
@@ -155,109 +113,127 @@ func initRedisDBCount() error {
 	return nil
 }
 
-//获取指定数据库中的keys数量
-func loadDBKeysCount(dbInfoChan chan model.RedisDBInfo, dbid int) {
-	isPrinted := false
-	for {
-		if ret, ok := redisCacheKeysMap.Load(dbid); ok {
-			keysMap := ret.(map[string][]string)
-			dbInfoChan <- model.RedisDBInfo{DBId: dbid, DBKeys: len(keysMap)}
-			break
-		}
-		if !isPrinted {
-			log.Printf("后台正在加载数据库编号=%d中的所有缓存Key到本地，请稍后...\r\n", dbid)
-			isPrinted = true
-		}
-		time.Sleep(1 * time.Second) //休眠一秒
-	}
-}
-
 //reids的数据库信息
-func AllRedisDBInfo(isAll bool, count int) chan model.RedisDBInfo {
+func AllRedisDBInfo(isAll bool, count int, dbInfoChan chan model.RedisDBInfo) {
+	defer close(dbInfoChan) //关闭通道
 	dbCount := redisDBCount //获取数据库的数量
 	if !isAll {
 		dbCount = count
 	}
-	dbInfoChan := make(chan model.RedisDBInfo, dbCount)
+	var wg sync.WaitGroup
 	for i := 0; i < dbCount; i++ {
-		go loadDBKeysCount(dbInfoChan, i)
+		wg.Add(1)
+		go func(dbid int, waitG *sync.WaitGroup) {
+			defer waitG.Done()
+			connection, err := createRedisConnection()
+			if err != nil {
+				log.Println(err)
+				dbInfoChan <- model.RedisDBInfo{DBId: dbid, DBKeys: 0}
+				return
+			}
+			defer connection.Close()
+			connection.Do("select", dbid) //选择指定数据库
+			ret, err := connection.Do("dbsize")
+			if err != nil {
+				log.Println(err)
+				dbInfoChan <- model.RedisDBInfo{DBId: dbid, DBKeys: 0}
+				return
+			}
+			keysCount, ok := ret.(int64)
+			if !ok {
+				log.Println("读取数据库缓存key的数量转换失败")
+				dbInfoChan <- model.RedisDBInfo{DBId: dbid, DBKeys: 0}
+				return
+			}
+			dbInfoChan <- model.RedisDBInfo{DBId: dbid, DBKeys: keysCount}
+		}(i, &wg)
 	}
-	return dbInfoChan
+	wg.Wait()
 }
 
-func LoadRedisKeys() {
+func SearchRedisKeysIgnoreCase(pattern string, keysChan chan string) {
+	defer close(keysChan) //关闭通道
 	conf, err := conf.GetRedisConf()
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
+	pattern = strings.ToLower(pattern)
+	pattern = strings.ReplaceAll(pattern, ".", "\\.")
+	pattern = strings.ReplaceAll(pattern, "*", ".*")
 
 	keyPrefixs := strings.Split(conf.Redis.KeyPrefix, ",")
 	var wg sync.WaitGroup
 	wg.Add(len(keyPrefixs))
 	for _, prefixItem := range keyPrefixs {
-		go func(waitG *sync.WaitGroup) {
-			defer waitG.Done()
+		go func(prefix string, waitG *sync.WaitGroup) {
+			defer waitG.Done() //标记任务已结束
 			conn, err := createRedisConnection()
 			if err != nil {
 				log.Println(err)
 				return
 			}
 			defer conn.Close()
-			keysRet, err := conn.Do("keys", fmt.Sprintf("%s*", prefixItem))
+			keysRet, err := conn.Do("keys", fmt.Sprintf("%s*", prefix))
 			if err != nil {
 				log.Println(err)
+				return
 			}
 			if keysRet == nil { //当前数据库没有缓存key
 				return
 			}
-			for _, itemKey := range keysRet.([]interface{}) {
-				key := string(itemKey.([]uint8))
-				fmt.Println(key)
-			}
-		}(&wg)
+			matchPatternKeys(pattern, keysRet.([]interface{}), keysChan)
+		}(prefixItem, &wg)
 	}
-	wg.Wait()
+	wg.Wait() //等待结束，释放通道资源
+}
+
+func matchPatternKeys(pattern string, keys []interface{}, keysChan chan string) {
+	if len(keys) <= 0 {
+		return
+	}
+	for _, item := range keys {
+		key := string(item.([]uint8))
+		key = strings.ReplaceAll(key, " ", "")
+		if key == "" {
+			continue
+		}
+		regKey := strings.ToLower(key)
+		if ok, _ := regexp.Match(pattern, []byte(regKey)); ok {
+			keysChan <- key
+			continue
+		}
+	}
 }
 
 //模糊查询缓存key
-func SearchRedisKeys(pattern string) (chan []string, error) {
+func SearchRedisKeys(pattern string) []string {
 	if pattern == "" {
 		pattern = "*"
 	}
-	var keysMap map[string][]string
-	firstPrint := true
-	for {
-		if ret, ok := redisCacheKeysMap.Load(redisOptionDBId); ok {
-			keysMap = ret.(map[string][]string)
-			break //缓存key已加载完成，可以继续后续操作
-		}
-		if !firstPrint {
-			fmt.Print(".")
-		} else {
-			firstPrint = false
-			fmt.Print("后台正在加载当前数据库中的缓存Key，请稍候")
-		}
-		time.Sleep(1 * time.Second) //休眠一秒
+	retKeys := []string{}
+	conn, err := createRedisConnection()
+	if err != nil {
+		log.Println(err)
+		return retKeys
 	}
-
-	pattern = strings.ToLower(pattern)
-	pattern = strings.ReplaceAll(pattern, ".", "\\.")
-	pattern = strings.ReplaceAll(pattern, "*", ".*")
-	//retKeys := make([]string, 0)
-	matchKeysChan := make(chan []string, len(keysMap))
-	for k := range keysMap {
-		go func(itemKey string) {
-			if ok, _ := regexp.Match(pattern, []byte(itemKey)); ok {
-				matchKeysChan <- keysMap[itemKey]
-				return
-			}
-			matchKeysChan <- make([]string, 0)
-		}(k)
+	keysRet, err := conn.Do("keys", pattern)
+	if err != nil {
+		log.Println(err)
+		return retKeys
 	}
-	// for i := 0; i < len(keysMap); i++ {
-	// 	retKeys = append(retKeys, <-matchKeysChan...)
-	// }
-	return matchKeysChan, nil
+	if keysRet == nil { //当前数据库没有缓存key
+		return retKeys
+	}
+	for _, item := range keysRet.([]interface{}) {
+		key := string(item.([]uint8))
+		key = strings.ReplaceAll(key, " ", "")
+		if key == "" {
+			continue
+		}
+		retKeys = append(retKeys, key)
+	}
+	return retKeys
 }
 
 //获取指定key的值

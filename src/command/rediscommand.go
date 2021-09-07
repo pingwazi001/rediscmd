@@ -11,12 +11,15 @@ import (
 	"rediscmd/src/util"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modood/table"
 )
 
 var InputReader *bufio.Reader
+
+type cmdParamfunc func([]string)
 
 //启动程序
 func RedisCMDStart() {
@@ -47,14 +50,13 @@ func funcOptionMsg() {
 	log.Println(conf.RedisConfName() + "\r\n" + content)
 	msg := []model.KV{
 		{Key: "cls", Value: "清屏"},
-		{Key: "ldb", Value: fmt.Sprintf("加载数据库列表 [y|n] [0~%d)", db.RedisDBCount())},
-		{Key: "keys", Value: "模糊查询缓存key [keypattern]"},
-		{Key: "get", Value: "查询模糊key的值 [keypattern]"},
-		{Key: "del", Value: "删除模糊key的值 [keypattern]"},
+		{Key: "keys", Value: "模糊查询缓存key [y:忽略大小写|不传或n:精确] [keypattern]"},
+		{Key: "get", Value: "查询模糊key的值 [y:忽略大小写|不传或n:精确] [keypattern]"},
+		{Key: "del", Value: "写删除模糊key的值 [y:忽略大小写|不传或n:精确] [keypattern]"},
 		{Key: "set", Value: "设置精确key的值 [key] [value]"},
+		{Key: "ldb", Value: fmt.Sprintf("加载数据库列表 [y|n] [0~%d)", db.RedisDBCount())},
 		{Key: "resetconf", Value: fmt.Sprintf("重新配置%s文件内容", conf.RedisConfName())},
 		{Key: "changeconf", Value: "切换配置文件"},
-		{Key: "reloadkeys", Value: "触发刷新本地缓存Key集合"},
 		{Key: "addconf", Value: "新增配置文件"},
 		{Key: "changeoptdbid", Value: fmt.Sprintf("切换当前操作数据库编号%d为其他值 [0~%d)", db.RedisDBCount(), db.RedisDBCount())},
 		{Key: "quit", Value: "退出程序"},
@@ -81,22 +83,20 @@ func funcOption() {
 	case "cls":
 		util.ClearConsoleScreen()
 		funcOptionMsg()
-	case "ldb":
-		loadDBCMD(cmdParams)
 	case "keys":
-		keysCMD(cmdParams)
+		keysOptionCMD("模糊查询缓存Key的列表需要2~3个参数，请重新输入", cmdParams, keysCMD, keysIgnoreCaseCMD)
 	case "get":
-		getCMD(cmdParams)
+		keysOptionCMD("模糊查询缓存Key的值需要2~2个参数，请重新输入", cmdParams, getCMD, getIgnoreCaseCMD)
 	case "del":
-		delCMD(cmdParams)
+		keysOptionCMD("模糊批量删除缓存需要2~3个参数，请重新输入", cmdParams, delCMD, delIgnoreCaseCMD)
 	case "set":
 		setCMD(cmdParams)
+	case "ldb":
+		loadDBCMD(cmdParams)
 	case "resetconf":
 		resetConfCMD()
 	case "changeconf":
 		changeConfCMD()
-	case "reloadkeys":
-		refreshLocalKeysCMD()
 	case "addconf":
 		addConfCMD()
 	case "changeoptdbid":
@@ -133,12 +133,11 @@ func loadDBCMD(cmdParams []string) {
 		return
 	}
 	opt := cmdParams[1]
-	var dbInfoChan chan model.RedisDBInfo
 	loadDbCount := db.RedisDBCount()
+	isLoadAll := true
 	switch opt {
 	case "y":
 		log.Println("正在加载全部数据库信息，请稍候...")
-		dbInfoChan = db.AllRedisDBInfo(true, 0)
 	case "n":
 		if !checkCMDParamsCount(cmdParams, 3) {
 			log.Println("请输入需要加载前前多少个数据库的信息")
@@ -150,16 +149,18 @@ func loadDBCMD(cmdParams []string) {
 			return
 		}
 		loadDbCount = count
-		log.Println("正在加载数据库信息，请稍候...")
-		dbInfoChan = db.AllRedisDBInfo(false, count)
+		isLoadAll = false
 	default:
 		log.Println("加载方式仅允许输入y/n")
 		return
 	}
-	dbMaps := make(map[int]int, loadDbCount)
+
+	dbInfoChan := make(chan model.RedisDBInfo, loadDbCount)
+	go db.AllRedisDBInfo(isLoadAll, loadDbCount, dbInfoChan)
+
+	dbMaps := make(map[int]int64, loadDbCount)
 	putCount := 1
 	var dbSize model.RedisDBInfo
-
 	for i := 0; i < loadDbCount; i++ {
 		if putCount <= loadDbCount {
 			putCount++
@@ -177,69 +178,162 @@ func loadDBCMD(cmdParams []string) {
 	}
 }
 
+func keysOptionCMD(paramErrMsg string, cmdParams []string, cmdFunc cmdParamfunc, ignoreCaseCmdFunc cmdParamfunc) {
+	if !checkCMDParamsCount(cmdParams, 2) && !checkCMDParamsCount(cmdParams, 3) {
+		log.Println(paramErrMsg)
+		return
+	}
+	if len(cmdParams) == 3 && cmdParams[1] == "y" {
+		ignoreCaseCmdFunc(append(cmdParams[0:1], cmdParams[2]))
+	} else if len(cmdParams) == 2 && cmdParams[1] == "n" {
+		cmdFunc(append(cmdParams[0:1], cmdParams[2]))
+	} else if len(cmdParams) == 2 {
+		cmdFunc(cmdParams)
+	} else {
+		log.Println("参数不符合规则")
+	}
+}
+
 //加载缓存key
 func keysCMD(cmdParams []string) {
+	if !checkCMDParamsCount(cmdParams, 2) {
+		log.Println("模糊查询缓存Key的列表需要2个参数，请重新输入")
+		return
+	}
+	keys := db.SearchRedisKeys(cmdParams[1])
+	for _, key := range keys {
+		log.Println(key)
+	}
+
+}
+
+//不区分大小写加载缓存key
+func keysIgnoreCaseCMD(cmdParams []string) {
 	if !checkCMDParamsCount(cmdParams, 2) {
 		log.Println("模糊查询缓存Key的列表需要两个参数，请重新输入")
 		return
 	}
-	keysChan, err := db.SearchRedisKeys(cmdParams[1])
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	for i := 0; i < len(keysChan); i++ {
-		keys := <-keysChan
-		for _, item := range keys {
-			item = strings.ReplaceAll(item, " ", "")
-			if item == "" {
-				continue
+	keysChan := make(chan string, 1000)
+	go db.SearchRedisKeysIgnoreCase(cmdParams[1], keysChan) //查询redis缓存key
+	for {
+		select {
+		case key, ok := <-keysChan:
+			{
+				if !ok {
+					log.Println("查询结束")
+					return //方法结束
+				}
+				key = strings.ReplaceAll(key, " ", "")
+				if key != "" {
+					log.Println(key)
+				}
 			}
-			log.Println(item)
+		default:
+			{
+				fmt.Print(".")
+				time.Sleep(1 * time.Second) //休眠一秒
+			}
 		}
 	}
 }
 
-//获取指定key的值
+//区分大小写的方式获取模糊key的值
 func getCMD(cmdParams []string) {
+	if !checkCMDParamsCount(cmdParams, 2) {
+		log.Println("模糊查询缓存Key的值需要2个参数，请重新输入")
+		return
+	}
+	keys := db.SearchRedisKeys(cmdParams[1])
+	var wg sync.WaitGroup
+	for _, key := range keys {
+		wg.Add(1)
+		go func(itemKey string, waitG *sync.WaitGroup) {
+			defer waitG.Done()
+			value, err := db.GetRedisValue(itemKey)
+			if err != nil {
+				log.Println(fmt.Sprintf("%s=%s", itemKey, err.Error()))
+				return
+			}
+			log.Println(fmt.Sprintf("%s=%s", itemKey, value))
+		}(key, &wg)
+	}
+	wg.Wait()
+}
+
+//不区分大小写获取指定key的值
+func getIgnoreCaseCMD(cmdParams []string) {
 	if !checkCMDParamsCount(cmdParams, 2) {
 		log.Println("模糊查询缓存Key的值需要两个参数，请重新输入")
 		return
 	}
-	keysChan, err := db.SearchRedisKeys(cmdParams[1])
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	keysCount := 0
-	valueMsgChan := make(chan string, len(keysChan))
-	for i := 0; i < len(keysChan); i++ {
-		keys := <-keysChan
-		if len(keys) <= 0 {
-			continue
-		}
-		keysCount += len(keys)
-		for _, key := range keys {
-			go func(itemKey string) {
-				value, err := db.GetRedisValue(itemKey)
-				if err != nil {
-					valueMsgChan <- itemKey + "=" + err.Error()
-					return
+	keysChan := make(chan string, 1000)
+	go db.SearchRedisKeysIgnoreCase(cmdParams[1], keysChan) //查询redis缓存key
+	var wg sync.WaitGroup
+	for {
+		select {
+		case key, ok := <-keysChan:
+			{
+				if !ok {
+					wg.Wait()
+					log.Println("查询结束")
+					return //方法结束
 				}
-				valueMsgChan <- fmt.Sprintf("%s=%s", itemKey, value)
-			}(key)
+				wg.Add(1)
+				go func(itemKey string, waitG *sync.WaitGroup) {
+					defer waitG.Done()
+					value, err := db.GetRedisValue(itemKey)
+					if err != nil {
+						log.Println(fmt.Sprintf("%s=%s", itemKey, err.Error()))
+						return
+					}
+					log.Println(fmt.Sprintf("%s=%s", itemKey, value))
+				}(key, &wg)
+			}
+		default:
+			{
+				fmt.Print(".")
+				time.Sleep(1 * time.Second) //休眠一秒
+			}
 		}
 	}
-	//打印查询结果
-	for i := 0; i < keysCount; i++ {
-		log.Println(<-valueMsgChan)
-		log.Println()
-	}
-	close(valueMsgChan) //释放资源
 }
 
-//删除模糊key的值
+//区分大小写的方式模糊删除key的值
 func delCMD(cmdParams []string) {
+	if !checkCMDParamsCount(cmdParams, 2) || !checkCMDParamsCount(cmdParams, 3) {
+		log.Println("模糊批量删除缓存需要2个参数，请重新输入")
+		return
+	}
+	pattern := cmdParams[1]
+	if pattern == "*" {
+		isSure, _ := util.ReadValueFromConsole(fmt.Sprintf("根据您输入的模糊Key=%s此次操作将清空数据库dbid=%d中的所有缓存！请确认是否执行此操作(y/n):", pattern, db.RedisDBCount()), false)
+		if isSure == "y" {
+			log.Println("正在处理，请稍候...")
+			db.FlushRedisDB() //清空数据库
+		}
+		return
+	}
+
+	keys := db.SearchRedisKeys(cmdParams[1])
+	var wg sync.WaitGroup
+	delKeysCount := 0
+	for _, key := range keys {
+		delKeysCount++
+		wg.Add(1)
+		go func(itemKey string, waitG *sync.WaitGroup) {
+			defer waitG.Done()
+			start := time.Now()
+			db.DeleteRedisKey(itemKey)
+			log.Println(fmt.Sprintf("%s 删除成功，耗时%d毫秒", itemKey, time.Since(start).Milliseconds()))
+		}(key, &wg)
+	}
+	wg.Wait()
+	log.Printf("共删除%d个缓存", delKeysCount)
+
+}
+
+//不区分大小写删除模糊key的值
+func delIgnoreCaseCMD(cmdParams []string) {
 	if !checkCMDParamsCount(cmdParams, 2) {
 		log.Println("模糊批量删除缓存需要两个参数，请重新输入")
 		return
@@ -253,40 +347,36 @@ func delCMD(cmdParams []string) {
 		}
 		return
 	}
-	keysChan, err := db.SearchRedisKeys(pattern)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	keysBuf := make([]string, 0, 2000)
-	keysCount := 0
-	delCount := 0
+	keysChan := make(chan string, 1000)
+	go db.SearchRedisKeysIgnoreCase(cmdParams[1], keysChan) //查询redis缓存key
+	var wg sync.WaitGroup
 	delKeysCount := 0
-	deleteMsgChan := make(chan string, len(keysChan))
-	for i := 0; i < len(keysChan); i++ {
-		keys := <-keysChan
-		if len(keys) <= 0 {
-			continue
-		}
-		delKeysCount += len(keys)
-		keysCount += len(keys)
-		keysBuf = append(keysBuf, keys...)
-		if len(keysBuf) >= 1000 {
-			go func(itemKey []string) {
-				start := time.Now()
-				db.DeleteRedisKey(itemKey...) //一次性批量删除多个
-				deleteMsgChan <- fmt.Sprintf("%s 删除成功，耗时%d毫秒", itemKey, time.Since(start).Milliseconds())
-			}(keysBuf[0:keysCount])
-			keysBuf = keysBuf[0:0]
-			keysCount = 0
-			delCount++
+
+	for {
+		select {
+		case key, ok := <-keysChan:
+			{
+				if !ok {
+					wg.Wait()
+					log.Printf("共删除%d个缓存", delKeysCount)
+					return //方法结束
+				}
+				delKeysCount++
+				wg.Add(1)
+				go func(itemKey string, waitG *sync.WaitGroup) {
+					defer waitG.Done()
+					start := time.Now()
+					db.DeleteRedisKey(itemKey)
+					log.Println(fmt.Sprintf("%s 删除成功，耗时%d毫秒", itemKey, time.Since(start).Milliseconds()))
+				}(key, &wg)
+			}
+		default:
+			{
+				fmt.Print(".")
+				time.Sleep(1 * time.Second) //休眠一秒
+			}
 		}
 	}
-	for i := 0; i < delCount; i++ {
-		log.Println(<-deleteMsgChan)
-	}
-	log.Printf("共删除%d个缓存", delKeysCount)
 }
 
 func setCMD(cmdParams []string) {
@@ -317,11 +407,6 @@ func resetConfCMD() {
 //切换配置文件
 func changeConfCMD() {
 	db.InitRedisInfo(true)
-}
-
-//触发加载缓存key
-func refreshLocalKeysCMD() {
-	db.TriggerLoadAllCacheKeysToLocal()
 }
 
 //添加配置文件

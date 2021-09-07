@@ -64,7 +64,7 @@ func InitRedisConf() error {
 	writer.WriteString(fmt.Sprintf("Port=%d\n", port))
 	writer.WriteString(fmt.Sprintf("Password=%s\n", password))
 	writer.WriteString(fmt.Sprintf("MaxConnect=%d\n", maxConnect))
-	writer.WriteString(fmt.Sprintf("KeyPrefix=%d", keyPrefix))
+	writer.WriteString(fmt.Sprintf("KeyPrefix=%s", keyPrefix))
 	writer.Flush()
 	return nil
 }
